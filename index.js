@@ -14,8 +14,14 @@ const client = new Client({
     partials: [Partials.Channel, Partials.Message, Partials.User]
 });
 
-const SUBSCRIPTIONS_FILE = path.join(__dirname, 'data', 'subscriptions.json');
-const SCHEDULE_FILE = path.join(__dirname, 'data', 'schedule.json');
+const DATA_DIR = path.join(__dirname, 'data');
+const SUBSCRIPTIONS_FILE = path.join(DATA_DIR, 'subscriptions.json');
+const SCHEDULE_FILE = path.join(DATA_DIR, 'schedule.json');
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 
 // Ensure data files exist
 if (!fs.existsSync(SUBSCRIPTIONS_FILE)) {
