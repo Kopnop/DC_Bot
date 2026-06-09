@@ -467,7 +467,7 @@ client.on('interactionCreate', async interaction => {
     const isNew = saveInteractedUser(interaction.user.id);
     if (isNew && interaction.commandName !== 'info') {
         try {
-            await interaction.user.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **predict** (or use `/predict`) to submit podium predictions.\n- Type **leaderboard** (or use `/leaderboard`) to view prediction rankings.");
+            await interaction.user.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **predict** (or use `/predict`) to submit podium predictions *(Scoring: +2 pts for exact position match, +1 pt for correct driver elsewhere on the podium)*.\n- Type **leaderboard** (or use `/leaderboard`) to view prediction rankings.");
         } catch (error) {
             console.error(`Failed to send welcome DM to ${interaction.user.tag}:`, error.message);
         }
@@ -511,7 +511,7 @@ client.on('interactionCreate', async interaction => {
         }
     } else if (interaction.commandName === 'info') {
         await interaction.reply({
-            content: "I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **predict** (or use `/predict`) to submit podium predictions.\n- Type **leaderboard** (or use `/leaderboard`) to view prediction rankings.",
+            content: "I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **predict** (or use `/predict`) to submit podium predictions *(Scoring: +2 pts for exact position match, +1 pt for correct driver elsewhere on the podium)*.\n- Type **leaderboard** (or use `/leaderboard`) to view prediction rankings.",
             ephemeral: true
         });
     } else if (interaction.commandName === 'predict') {
@@ -630,7 +630,7 @@ client.on('messageCreate', async message => {
         const isNew = saveInteractedUser(message.author.id);
         if (isNew && command !== 'info' && command !== 'help') {
             try {
-                await message.author.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **predict** (or use `/predict`) to submit podium predictions.\n- Type **leaderboard** (or use `/leaderboard`) to view prediction rankings.");
+                await message.author.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **predict** (or use `/predict`) to submit podium predictions *(Scoring: +2 pts for exact position match, +1 pt for correct driver elsewhere on the podium)*.\n- Type **leaderboard** (or use `/leaderboard`) to view prediction rankings.");
             } catch (error) {
                 console.error(`Failed to send welcome DM to ${message.author.tag}:`, error.message);
             }
@@ -774,9 +774,9 @@ client.on('messageCreate', async message => {
                 await message.reply('There are no upcoming races in the current schedule.');
             }
         } else if (content === 'info' || content === 'help') {
-            await message.reply("I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **predict** (or use `/predict`) to submit podium predictions.\n- Type **leaderboard** (or use `/leaderboard`) to view prediction rankings.");
+            await message.reply("I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **predict** (or use `/predict`) to submit podium predictions *(Scoring: +2 pts for exact position match, +1 pt for correct driver elsewhere on the podium)*.\n- Type **leaderboard** (or use `/leaderboard`) to view prediction rankings.");
         } else {
-            await message.reply('Hello! You can DM me the following commands:\n- **subscribe**: get notified 24h before a race\n- **unsubscribe**: stop receiving notifications\n- **next**: get next race details\n- **predict [p1] [p2] [p3]**: submit podium predictions (e.g. `predict ver nor lec`)\n- **mypredictions**: view your active predictions\n- **leaderboard**: view seasonal leaderboard\n- **info**: get detailed information and commands\n\nYou can also use slash commands (e.g. `/predict`).');
+            await message.reply('Hello! You can DM me the following commands:\n- **subscribe**: get notified 24h before a race\n- **unsubscribe**: stop receiving notifications\n- **next**: get next race details\n- **predict [p1] [p2] [p3]**: submit podium predictions (e.g. `predict ver nor lec`) *[Scoring: +2 pts exact match, +1 pt podium match]*\n- **mypredictions**: view your active predictions\n- **leaderboard**: view seasonal leaderboard\n- **info**: get detailed information and commands\n\nYou can also use slash commands (e.g. `/predict`).');
         }
     }
 });
