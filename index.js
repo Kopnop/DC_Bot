@@ -151,7 +151,7 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     const isNew = saveInteractedUser(interaction.user.id);
-    if (isNew) {
+    if (isNew && interaction.commandName !== 'info') {
         try {
             await interaction.user.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **unsubscribe** (or use `/unsubscribe`) if you want to stop receiving reminders.");
         } catch (error) {
@@ -209,16 +209,16 @@ client.on('messageCreate', async message => {
 
     // Check if the message is in a DM channel (i.e. not in a guild)
     if (!message.guild) {
+        const content = message.content.trim().toLowerCase();
+
         const isNew = saveInteractedUser(message.author.id);
-        if (isNew) {
+        if (isNew && content !== 'info' && content !== 'help') {
             try {
                 await message.author.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **unsubscribe** (or use `/unsubscribe`) if you want to stop receiving reminders.");
             } catch (error) {
                 console.error(`Failed to send welcome DM to ${message.author.tag}:`, error.message);
             }
         }
-
-        const content = message.content.trim().toLowerCase();
 
         if (content === 'subscribe') {
             const subscribers = getSubscribers();
