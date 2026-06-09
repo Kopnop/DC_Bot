@@ -23,12 +23,17 @@ if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+const INTERACTED_FILE = path.join(DATA_DIR, 'interacted.json');
+
 // Ensure data files exist
 if (!fs.existsSync(SUBSCRIPTIONS_FILE)) {
     fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify({ subscribers: [] }));
 }
 if (!fs.existsSync(SCHEDULE_FILE)) {
     fs.writeFileSync(SCHEDULE_FILE, JSON.stringify({}));
+}
+if (!fs.existsSync(INTERACTED_FILE)) {
+    fs.writeFileSync(INTERACTED_FILE, JSON.stringify({ users: [] }));
 }
 
 function getSubscribers() {
@@ -37,6 +42,16 @@ function getSubscribers() {
 
 function saveSubscribers(subscribers) {
     fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify({ subscribers }, null, 2));
+}
+
+function saveInteractedUser(userId) {
+    const data = JSON.parse(fs.readFileSync(INTERACTED_FILE, 'utf8'));
+    if (!data.users.includes(userId)) {
+        data.users.push(userId);
+        fs.writeFileSync(INTERACTED_FILE, JSON.stringify(data, null, 2));
+        return true;
+    }
+    return false;
 }
 
 // Commands Definition
@@ -49,7 +64,10 @@ const commands = [
         .setDescription('Unsubscribe from F1 race notifications.'),
     new SlashCommandBuilder()
         .setName('nextrace')
-        .setDescription('Get the date and time of the next F1 race.')
+        .setDescription('Get the date and time of the next F1 race.'),
+    new SlashCommandBuilder()
+        .setName('info')
+        .setDescription('Get information about the F1 Reminder Bot and available commands.')
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -132,6 +150,15 @@ client.on('ready', async () => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
+    const isNew = saveInteractedUser(interaction.user.id);
+    if (isNew) {
+        try {
+            await interaction.user.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **unsubscribe** (or use `/unsubscribe`) if you want to stop receiving reminders.");
+        } catch (error) {
+            console.error(`Failed to send welcome DM to ${interaction.user.tag}:`, error.message);
+        }
+    }
+
     if (interaction.commandName === 'subscribe') {
         const subscribers = getSubscribers();
         if (!subscribers.includes(interaction.user.id)) {
@@ -169,6 +196,11 @@ client.on('interactionCreate', async interaction => {
         } else {
             await interaction.reply({ content: 'There are no upcoming races in the current schedule.', ephemeral: true });
         }
+    } else if (interaction.commandName === 'info') {
+        await interaction.reply({
+            content: "I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **unsubscribe** (or use `/unsubscribe`) if you want to stop receiving reminders.",
+            ephemeral: true
+        });
     }
 });
 
@@ -177,6 +209,15 @@ client.on('messageCreate', async message => {
 
     // Check if the message is in a DM channel (i.e. not in a guild)
     if (!message.guild) {
+        const isNew = saveInteractedUser(message.author.id);
+        if (isNew) {
+            try {
+                await message.author.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **unsubscribe** (or use `/unsubscribe`) if you want to stop receiving reminders.");
+            } catch (error) {
+                console.error(`Failed to send welcome DM to ${message.author.tag}:`, error.message);
+            }
+        }
+
         const content = message.content.trim().toLowerCase();
 
         if (content === 'subscribe') {
@@ -215,8 +256,10 @@ client.on('messageCreate', async message => {
             } else {
                 await message.reply('There are no upcoming races in the current schedule.');
             }
+        } else if (content === 'info' || content === 'help') {
+            await message.reply("I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere's how to get started:\n- Type **subscribe** (or use `/subscribe`) to receive notifications.\n- Type **next** (or use `/nextrace`) to see details for the upcoming race.\n- Type **unsubscribe** (or use `/unsubscribe`) if you want to stop receiving reminders.");
         } else {
-            await message.reply('Hello! You can DM me the following commands:\n- **subscribe**: get notified 24h before a race\n- **unsubscribe**: stop receiving notifications\n- **next**: get next race details\n\nYou can also use slash commands (e.g. `/subscribe`).');
+            await message.reply('Hello! You can DM me the following commands:\n- **subscribe**: get notified 24h before a race\n- **unsubscribe**: stop receiving notifications\n- **next**: get next race details\n- **info**: get detailed information and commands\n\nYou can also use slash commands (e.g. `/subscribe`).');
         }
     }
 });
