@@ -1,7 +1,5 @@
 node_modules/
 .env
-data/schedule.json
-data/subscriptions.json
-data/interacted.json
+data/*.json
 git 
 README_LOCAL.md
