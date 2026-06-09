@@ -565,7 +565,7 @@ client.on('interactionCreate', async interaction => {
                      `🥇 **P1:** ${getPrettyName(p1)}\n` +
                      `🥈 **P2:** ${getPrettyName(p2)}\n` +
                      `🥉 **P3:** ${getPrettyName(p3)}\n\n` +
-                     `*Note: Predictions lock at the race start time (when they close). You can run `/predict` again to update your choices.*`,
+                     `*Note: Predictions lock at the race start time (when they close). You can run \`/predict\` again to update your choices.*`,
             ephemeral: true
         });
     } else if (interaction.commandName === 'mypredictions') {
