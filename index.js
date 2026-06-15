@@ -21,6 +21,18 @@ const INTERACTED_FILE = path.join(DATA_DIR, 'interacted.json');
 const PREDICTIONS_FILE = path.join(DATA_DIR, 'predictions.json');
 const LEADERBOARD_FILE = path.join(DATA_DIR, 'leaderboard.json');
 const DRIVERS_FILE = path.join(DATA_DIR, 'drivers.json');
+const REMINDERS_FILE = path.join(DATA_DIR, 'sent_reminders.json');
+
+const COMMANDS_HELP_TEXT = 
+    "- **/subscribe** (or type **subscribe**): Subscribe to race reminders.\n" +
+    "- **/unsubscribe** (or type **unsubscribe**): Stop receiving reminders.\n" +
+    "- **/nextrace** (or type **next**): Get details for the upcoming race.\n" +
+    "- **/predict** (or type **predict [p1] [p2] [p3]**): Submit podium predictions *(Scoring: +2 pts exact match, +1 pt podium match)*.\n" +
+    "- **/mypredictions** (or type **mypredictions**): View your current predictions.\n" +
+    "- **/leaderboard** (or type **leaderboard**): View seasonal prediction standings.\n" +
+    "- **/driverstandings** (or type **driverstandings** or **drivers**): View current F1 driver standings.\n" +
+    "- **/teamstandings** (or type **teamstandings** or **teams**): View current F1 team standings.\n" +
+    "- **/info** (or type **info** or **help**): Show this command list.";
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -46,6 +58,9 @@ if (!fs.existsSync(LEADERBOARD_FILE)) {
 if (!fs.existsSync(DRIVERS_FILE)) {
     fs.writeFileSync(DRIVERS_FILE, JSON.stringify({}));
 }
+if (!fs.existsSync(REMINDERS_FILE)) {
+    fs.writeFileSync(REMINDERS_FILE, JSON.stringify({ sentRoundReminders: [] }));
+}
 
 // File Access Helpers
 function getSubscribers() {
@@ -54,6 +69,108 @@ function getSubscribers() {
 
 function saveSubscribers(subscribers) {
     fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify({ subscribers }, null, 2));
+}
+
+function getSentReminders() {
+    try {
+        return JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8')).sentRoundReminders || [];
+    } catch (err) {
+        return [];
+    }
+}
+
+function markReminderAsSent(round) {
+    try {
+        const data = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8'));
+        if (!data.sentRoundReminders) data.sentRoundReminders = [];
+        if (!data.sentRoundReminders.includes(round)) {
+            data.sentRoundReminders.push(round);
+            fs.writeFileSync(REMINDERS_FILE, JSON.stringify(data, null, 2));
+        }
+    } catch (err) {
+        console.error('Error marking reminder as sent:', err.message);
+    }
+}
+
+function formatToCET(date) {
+    const options = {
+        timeZone: 'Europe/Berlin',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    };
+    const formatter = new Intl.DateTimeFormat('de-DE', options);
+    const dateParts = formatter.formatToParts(date);
+    const day = dateParts.find(p => p.type === 'day').value;
+    const month = dateParts.find(p => p.type === 'month').value;
+    const year = dateParts.find(p => p.type === 'year').value;
+    const hour = dateParts.find(p => p.type === 'hour').value;
+    const minute = dateParts.find(p => p.type === 'minute').value;
+    
+    const tzString = date.toLocaleString('en-US', { timeZone: 'Europe/Berlin', timeZoneName: 'short' });
+    let tz = 'CET';
+    if (tzString.includes('GMT+2') || tzString.includes('GMT+02') || tzString.includes('CEST')) {
+        tz = 'CEST';
+    } else if (tzString.includes('GMT+1') || tzString.includes('GMT+01') || tzString.includes('CET')) {
+        tz = 'CET';
+    }
+    return `${day}.${month}.${year} at ${hour}:${minute} ${tz}`;
+}
+
+async function fetchDriverStandings() {
+    try {
+        const response = await axios.get('https://api.jolpi.ca/ergast/f1/current/driverStandings.json');
+        const standingsList = response.data.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings;
+        if (!standingsList || standingsList.length === 0) {
+            return 'Driver standings are currently not available.';
+        }
+
+        let standingsText = '🏆 **F1 Driver Championship Standings** 🏆\n\n';
+        standingsList.slice(0, 15).forEach((item) => {
+            const pos = item.position;
+            let medal = `${pos}.`;
+            if (pos === '1') medal = '🥇';
+            else if (pos === '2') medal = '🥈';
+            else if (pos === '3') medal = '🥉';
+
+            const driver = item.Driver;
+            const constructor = item.Constructors?.[0]?.name || 'Unknown';
+            standingsText += `${medal} **${driver.givenName} ${driver.familyName}** (${constructor}) - **${item.points} pts**${item.wins > 0 ? ` (${item.wins} win${item.wins > 1 ? 's' : ''})` : ''}\n`;
+        });
+        return standingsText;
+    } catch (err) {
+        console.error('Error fetching driver standings:', err.message);
+        return 'Failed to retrieve driver standings. Please try again later.';
+    }
+}
+
+async function fetchTeamStandings() {
+    try {
+        const response = await axios.get('https://api.jolpi.ca/ergast/f1/current/constructorStandings.json');
+        const standingsList = response.data.MRData?.StandingsTable?.StandingsLists?.[0]?.ConstructorStandings;
+        if (!standingsList || standingsList.length === 0) {
+            return 'Team standings are currently not available.';
+        }
+
+        let standingsText = '🏆 **F1 Team Championship Standings** 🏆\n\n';
+        standingsList.forEach((item) => {
+            const pos = item.position;
+            let medal = `${pos}.`;
+            if (pos === '1') medal = '🥇';
+            else if (pos === '2') medal = '🥈';
+            else if (pos === '3') medal = '🥉';
+
+            const team = item.Constructor;
+            standingsText += `${medal} **${team.name}** - **${item.points} pts**${item.wins > 0 ? ` (${item.wins} win${item.wins > 1 ? 's' : ''})` : ''}\n`;
+        });
+        return standingsText;
+    } catch (err) {
+        console.error('Error fetching team standings:', err.message);
+        return 'Failed to retrieve team standings. Please try again later.';
+    }
 }
 
 function saveInteractedUser(userId) {
@@ -201,7 +318,13 @@ const commands = [
         .setDescription('View your predictions for the upcoming F1 race.'),
     new SlashCommandBuilder()
         .setName('leaderboard')
-        .setDescription('View the seasonal F1 predictions leaderboard.')
+        .setDescription('View the seasonal F1 predictions leaderboard.'),
+    new SlashCommandBuilder()
+        .setName('driverstandings')
+        .setDescription('Show current F1 driver championship standings.'),
+    new SlashCommandBuilder()
+        .setName('teamstandings')
+        .setDescription('Show current F1 team championship standings.')
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -262,16 +385,21 @@ async function checkUpcomingRaces() {
             const hoursDiff = timeDiffMs / (1000 * 60 * 60);
 
             // Send 24h DM reminder
-            if (hoursDiff > 24 && hoursDiff <= 25) {
-                const subscribers = getSubscribers();
-                for (const userId of subscribers) {
-                    try {
-                        const user = await client.users.fetch(userId);
-                        await user.send(`🏎️ **Reminder!** The **${nextRace.raceName}** starts in exactly 24 hours! Make sure to submit your podium predictions using \`/predict\`!`);
-                        console.log(`Sent F1 race reminder DM to ${user.tag} (${userId})`);
-                    } catch (err) {
-                        console.error(`Failed to send DM to user ${userId}:`, err.message);
+            if (hoursDiff <= 24.5 && hoursDiff > 22.5) {
+                const sentReminders = getSentReminders();
+                if (!sentReminders.includes(nextRace.round)) {
+                    const subscribers = getSubscribers();
+                    const formattedTime = formatToCET(raceDate);
+                    for (const userId of subscribers) {
+                        try {
+                            const user = await client.users.fetch(userId);
+                            await user.send(`🏎️ **Reminder!** The **${nextRace.raceName}** starts in exactly 24 hours (on ${formattedTime})! Make sure to submit your podium predictions using \`/predict\`!`);
+                            console.log(`Sent F1 race reminder DM to ${user.tag} (${userId})`);
+                        } catch (err) {
+                            console.error(`Failed to send DM to user ${userId}:`, err.message);
+                        }
                     }
+                    markReminderAsSent(nextRace.round);
                 }
             }
 
@@ -468,7 +596,7 @@ client.on('interactionCreate', async interaction => {
     if (isNew) {
         try {
             await interaction.reply({
-                content: "Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere are all available commands:\n- **/subscribe** (or type **subscribe**): Subscribe to race reminders.\n- **/unsubscribe** (or type **unsubscribe**): Stop receiving reminders.\n- **/nextrace** (or type **next**): Get details for the upcoming race.\n- **/predict** (or type **predict [p1] [p2] [p3]**): Submit podium predictions *(Scoring: +2 pts exact match, +1 pt podium match)*.\n- **/mypredictions** (or type **mypredictions**): View your current predictions.\n- **/leaderboard** (or type **leaderboard**): View seasonal prediction standings.\n- **/info** (or type **info** or **help**): Show this command list.",
+                content: "Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere are all available commands:\n" + COMMANDS_HELP_TEXT,
                 ephemeral: true
             });
         } catch (error) {
@@ -509,13 +637,14 @@ client.on('interactionCreate', async interaction => {
         if (nextRace) {
             const raceDate = new Date(`${nextRace.date}T${nextRace.time}`);
             const timestamp = Math.floor(raceDate.getTime() / 1000);
-            await interaction.reply({ content: `The next race is the **${nextRace.raceName}** on <t:${timestamp}:F>.`, ephemeral: true });
+            const formattedTime = formatToCET(raceDate);
+            await interaction.reply({ content: `The next race is the **${nextRace.raceName}** on <t:${timestamp}:F> (${formattedTime}).`, ephemeral: true });
         } else {
             await interaction.reply({ content: 'There are no upcoming races in the current schedule.', ephemeral: true });
         }
     } else if (interaction.commandName === 'info') {
         await interaction.reply({
-            content: "I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere are all available commands:\n- **/subscribe** (or type **subscribe**): Subscribe to race reminders.\n- **/unsubscribe** (or type **unsubscribe**): Stop receiving reminders.\n- **/nextrace** (or type **next**): Get details for the upcoming race.\n- **/predict** (or type **predict [p1] [p2] [p3]**): Submit podium predictions *(Scoring: +2 pts exact match, +1 pt podium match)*.\n- **/mypredictions** (or type **mypredictions**): View your current predictions.\n- **/leaderboard** (or type **leaderboard**): View seasonal prediction standings.\n- **/info** (or type **info** or **help**): Show this command list.",
+            content: "I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere are all available commands:\n" + COMMANDS_HELP_TEXT,
             ephemeral: true
         });
     } else if (interaction.commandName === 'predict') {
@@ -564,12 +693,14 @@ client.on('interactionCreate', async interaction => {
         savePredictions(predictions);
 
         const getPrettyName = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+        const raceDate = new Date(`${upcomingRace.date}T${upcomingRace.time}`);
+        const formattedTime = formatToCET(raceDate);
         await interaction.reply({
             content: `🏎️ **Prediction Saved for the ${upcomingRace.raceName}!**\n\n` +
                 `🥇 **P1:** ${getPrettyName(p1)}\n` +
                 `🥈 **P2:** ${getPrettyName(p2)}\n` +
                 `🥉 **P3:** ${getPrettyName(p3)}\n\n` +
-                `*Note: Predictions lock at the race start time (when they close). You can run \`/predict\` again to update your choices.*`,
+                `*Note: Predictions lock at the race start time (on ${formattedTime}). You can run \`/predict\` again to update your choices.*`,
             ephemeral: true
         });
     } else if (interaction.commandName === 'mypredictions') {
@@ -588,13 +719,15 @@ client.on('interactionCreate', async interaction => {
 
         const getPrettyName = (id) => id.charAt(0).toUpperCase() + id.slice(1);
         const isLocked = isPredictionLocked(upcomingRace);
+        const raceDate = new Date(`${upcomingRace.date}T${upcomingRace.time}`);
+        const formattedTime = formatToCET(raceDate);
 
         await interaction.reply({
             content: `📋 **Your Predictions for the ${upcomingRace.raceName}:**\n\n` +
                 `🥇 **P1:** ${getPrettyName(userPred.p1)}\n` +
                 `🥈 **P2:** ${getPrettyName(userPred.p2)}\n` +
                 `🥉 **P3:** ${getPrettyName(userPred.p3)}\n\n` +
-                `Status: ${isLocked ? '🔒 **Locked**' : '🔓 **Open (editable)**'}`,
+                `Status: ${isLocked ? '🔒 **Locked**' : `🔓 **Open (editable until ${formattedTime})**`}`,
             ephemeral: true
         });
     } else if (interaction.commandName === 'leaderboard') {
@@ -620,6 +753,14 @@ client.on('interactionCreate', async interaction => {
         });
 
         await interaction.reply({ content: leaderboardText, ephemeral: true });
+    } else if (interaction.commandName === 'driverstandings') {
+        await interaction.deferReply({ ephemeral: true });
+        const standingsText = await fetchDriverStandings();
+        await interaction.editReply({ content: standingsText });
+    } else if (interaction.commandName === 'teamstandings') {
+        await interaction.deferReply({ ephemeral: true });
+        const standingsText = await fetchTeamStandings();
+        await interaction.editReply({ content: standingsText });
     }
 });
 
@@ -634,7 +775,7 @@ client.on('messageCreate', async message => {
         const isNew = saveInteractedUser(message.author.id);
         if (isNew) {
             try {
-                await message.author.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere are all available commands:\n- **/subscribe** (or type **subscribe**): Subscribe to race reminders.\n- **/unsubscribe** (or type **unsubscribe**): Stop receiving reminders.\n- **/nextrace** (or type **next**): Get details for the upcoming race.\n- **/predict** (or type **predict [p1] [p2] [p3]**): Submit podium predictions *(Scoring: +2 pts exact match, +1 pt podium match)*.\n- **/mypredictions** (or type **mypredictions**): View your current predictions.\n- **/leaderboard** (or type **leaderboard**): View seasonal prediction standings.\n- **/info** (or type **info** or **help**): Show this command list.");
+                await message.author.send("Welcome to the F1 Reminder Bot! 🏎️\nI will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere are all available commands:\n" + COMMANDS_HELP_TEXT);
             } catch (error) {
                 console.error(`Failed to send welcome DM to ${message.author.tag}:`, error.message);
             }
@@ -691,12 +832,14 @@ client.on('messageCreate', async message => {
             savePredictions(predictions);
 
             const getPrettyName = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+            const raceDate = new Date(`${upcomingRace.date}T${upcomingRace.time}`);
+            const formattedTime = formatToCET(raceDate);
             await message.reply(
                 `🏎️ **Prediction Saved for the ${upcomingRace.raceName}!**\n\n` +
                 `🥇 **P1:** ${getPrettyName(p1)}\n` +
                 `🥈 **P2:** ${getPrettyName(p2)}\n` +
                 `🥉 **P3:** ${getPrettyName(p3)}\n\n` +
-                `You can run this command again to update your predictions before the race starts.`
+                `You can run this command again to update your predictions before the race starts (closes on ${formattedTime}).`
             );
         } else if (command === 'mypredictions' || command === 'mypredict') {
             const upcomingRace = getUpcomingRace();
@@ -713,12 +856,14 @@ client.on('messageCreate', async message => {
 
             const getPrettyName = (id) => id.charAt(0).toUpperCase() + id.slice(1);
             const isLocked = isPredictionLocked(upcomingRace);
+            const myraceDate = new Date(`${upcomingRace.date}T${upcomingRace.time}`);
+            const myformattedTime = formatToCET(myraceDate);
             await message.reply(
                 `📋 **Your Predictions for the ${upcomingRace.raceName}:**\n\n` +
                 `🥇 **P1:** ${getPrettyName(userPred.p1)}\n` +
                 `🥈 **P2:** ${getPrettyName(userPred.p2)}\n` +
                 `🥉 **P3:** ${getPrettyName(userPred.p3)}\n\n` +
-                `Status: ${isLocked ? '🔒 **Locked**' : '🔓 **Open (editable)**'}`
+                `Status: ${isLocked ? '🔒 **Locked**' : `🔓 **Open (editable until ${myformattedTime})**`}`
             );
         } else if (command === 'leaderboard') {
             const leaderboard = getLeaderboard();
@@ -774,14 +919,21 @@ client.on('messageCreate', async message => {
             if (nextRace) {
                 const raceDate = new Date(`${nextRace.date}T${nextRace.time}`);
                 const timestamp = Math.floor(raceDate.getTime() / 1000);
-                await message.reply(`The next race is the **${nextRace.raceName}** on <t:${timestamp}:F>.`);
+                const formattedTime = formatToCET(raceDate);
+                await message.reply(`The next race is the **${nextRace.raceName}** on <t:${timestamp}:F> (${formattedTime}).`);
             } else {
                 await message.reply('There are no upcoming races in the current schedule.');
             }
+        } else if (command === 'driverstandings' || command === '/driverstandings' || command === 'drivers') {
+            const standingsText = await fetchDriverStandings();
+            await message.reply(standingsText);
+        } else if (command === 'teamstandings' || command === '/teamstandings' || command === 'teams') {
+            const standingsText = await fetchTeamStandings();
+            await message.reply(standingsText);
         } else if (content === 'info' || content === 'help') {
-            await message.reply("I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere are all available commands:\n- **/subscribe** (or type **subscribe**): Subscribe to race reminders.\n- **/unsubscribe** (or type **unsubscribe**): Stop receiving reminders.\n- **/nextrace** (or type **next**): Get details for the upcoming race.\n- **/predict** (or type **predict [p1] [p2] [p3]**): Submit podium predictions *(Scoring: +2 pts exact match, +1 pt podium match)*.\n- **/mypredictions** (or type **mypredictions**): View your current predictions.\n- **/leaderboard** (or type **leaderboard**): View seasonal prediction standings.\n- **/info** (or type **info** or **help**): Show this command list.");
+            await message.reply("I will send you a DM 24 hours before each F1 race starts so you never miss a race.\n\nHere are all available commands:\n" + COMMANDS_HELP_TEXT);
         } else {
-            await message.reply("Hello! You can DM me the following commands:\n- **/subscribe** (or type **subscribe**): Subscribe to race reminders.\n- **/unsubscribe** (or type **unsubscribe**): Stop receiving reminders.\n- **/nextrace** (or type **next**): Get details for the upcoming race.\n- **/predict** (or type **predict [p1] [p2] [p3]**): Submit podium predictions *(Scoring: +2 pts exact match, +1 pt podium match)*.\n- **/mypredictions** (or type **mypredictions**): View your current predictions.\n- **/leaderboard** (or type **leaderboard**): View seasonal prediction standings.\n- **/info** (or type **info** or **help**): Show this command list.\n\nYou can also use slash commands (e.g. `/predict`).");
+            await message.reply("Hello! You can DM me the following commands:\n" + COMMANDS_HELP_TEXT + "\n\nYou can also use slash commands (e.g. `/predict`).");
         }
     }
 });
