@@ -3,7 +3,7 @@ const fs = require('fs');
 const { SCHEDULE_FILE, DRIVERS_FILE, commands } = require('./src/config');
 const { fetchF1Schedule } = require('./src/api');
 const { initSchedulers } = require('./src/scheduler');
-const { handleAutocomplete, handleInteraction, handleMessage } = require('./src/handlers/commands');
+const { handleAutocomplete, handleInteraction, handleMessage, handleButton } = require('./src/handlers/commands');
 require('dotenv').config();
 
 const client = new Client({
@@ -63,6 +63,14 @@ client.on('interactionCreate', async interaction => {
             await handleInteraction(interaction, client);
         } catch (err) {
             console.error('Error handling interaction command:', err);
+        }
+    }
+
+    if (interaction.isButton()) {
+        try {
+            await handleButton(interaction);
+        } catch (err) {
+            console.error('Error handling button interaction:', err);
         }
     }
 });

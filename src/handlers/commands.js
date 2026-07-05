@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const {
     DRIVERS_FILE,
     SCHEDULE_FILE,
@@ -11,6 +12,8 @@ const {
 const {
     getSubscribers,
     saveSubscribers,
+    getUserSubscription,
+    saveUserSubscription,
     saveInteractedUser,
     getPredictions,
     savePredictions,
@@ -63,22 +66,20 @@ async function handleInteraction(interaction, client) {
     }
 
     if (interaction.commandName === 'subscribe') {
-        const subscribers = getSubscribers();
-        if (!subscribers.includes(interaction.user.id)) {
-            subscribers.push(interaction.user.id);
-            saveSubscribers(subscribers);
-            await interaction.reply({ content: 'You have successfully subscribed to F1 race notifications!', ephemeral: true });
-        } else {
-            await interaction.reply({ content: 'You are already subscribed.', ephemeral: true });
+        let settings = getUserSubscription(interaction.user.id);
+        if (!settings) {
+            settings = { weekend: true, qualifying: false, sprint: false, race: false };
+            saveUserSubscription(interaction.user.id, settings);
         }
+        const messageOptions = buildSubscriptionMessage(interaction.user.id, settings);
+        await interaction.reply({ ...messageOptions, ephemeral: true });
     } else if (interaction.commandName === 'unsubscribe') {
-        let subscribers = getSubscribers();
-        if (subscribers.includes(interaction.user.id)) {
-            subscribers = subscribers.filter(id => id !== interaction.user.id);
-            saveSubscribers(subscribers);
-            await interaction.reply({ content: 'You have been unsubscribed from F1 race notifications.', ephemeral: true });
+        const settings = getUserSubscription(interaction.user.id);
+        if (settings) {
+            saveUserSubscription(interaction.user.id, null);
+            await interaction.reply({ content: 'You have been unsubscribed from all F1 reminders.', ephemeral: true });
         } else {
-            await interaction.reply({ content: 'You are not currently subscribed.', ephemeral: true });
+            await interaction.reply({ content: 'You are not currently subscribed to any reminders.', ephemeral: true });
         }
     } else if (interaction.commandName === 'nextrace') {
         const scheduleData = JSON.parse(fs.readFileSync(SCHEDULE_FILE, 'utf8'));
@@ -345,20 +346,18 @@ async function handleMessage(message, client) {
             });
             await message.reply(leaderboardText);
         } else if (content === 'subscribe') {
-            const subscribers = getSubscribers();
-            if (!subscribers.includes(message.author.id)) {
-                subscribers.push(message.author.id);
-                saveSubscribers(subscribers);
-                await message.reply('You have successfully subscribed to F1 race notifications!');
-            } else {
-                await message.reply('You are already subscribed.');
+            let settings = getUserSubscription(message.author.id);
+            if (!settings) {
+                settings = { weekend: true, qualifying: false, sprint: false, race: false };
+                saveUserSubscription(message.author.id, settings);
             }
+            const messageOptions = buildSubscriptionMessage(message.author.id, settings);
+            await message.reply(messageOptions);
         } else if (content === 'unsubscribe') {
-            let subscribers = getSubscribers();
-            if (subscribers.includes(message.author.id)) {
-                subscribers = subscribers.filter(id => id !== message.author.id);
-                saveSubscribers(subscribers);
-                await message.reply('You have been unsubscribed from F1 race notifications.');
+            const settings = getUserSubscription(message.author.id);
+            if (settings) {
+                saveUserSubscription(message.author.id, null);
+                await message.reply('You have been unsubscribed from all F1 reminders.');
             } else {
                 await message.reply('You are not currently subscribed.');
             }
@@ -395,8 +394,87 @@ async function handleMessage(message, client) {
     }
 }
 
+function buildSubscriptionMessage(userId, subscriptionSettings) {
+    const settings = subscriptionSettings || {
+        weekend: false,
+        qualifying: false,
+        sprint: false,
+        race: false
+    };
+
+    const embed = new EmbedBuilder()
+        .setColor('#FF1801')
+        .setTitle('🏎️ F1 Reminder Subscriptions')
+        .setDescription(
+            'Customize which reminders you want to receive. Click the buttons below to toggle your choices.\n\n' +
+            `• **Race Weekend (Fri 9am CEST):** ${settings.weekend ? '🔔 **Active**' : '🔕 **Inactive**'}\n` +
+            `• **Qualifying (1h before):** ${settings.qualifying ? '🔔 **Active**' : '🔕 **Inactive**'}\n` +
+            `• **Sprint (1h before):** ${settings.sprint ? '🔔 **Active**' : '🔕 **Inactive**'}\n` +
+            `• **Race (1h before):** ${settings.race ? '🔔 **Active**' : '🔕 **Inactive**'}`
+        )
+        .setFooter({ text: 'All times are calculated automatically based on the F1 schedule.' });
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('toggle_reminder_weekend')
+            .setLabel('Weekend')
+            .setEmoji('🏎️')
+            .setStyle(settings.weekend ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('toggle_reminder_qualifying')
+            .setLabel('Qualifying (1h)')
+            .setEmoji('⏱️')
+            .setStyle(settings.qualifying ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('toggle_reminder_sprint')
+            .setLabel('Sprint (1h)')
+            .setEmoji('⚡')
+            .setStyle(settings.sprint ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('toggle_reminder_race')
+            .setLabel('Race (1h)')
+            .setEmoji('🏁')
+            .setStyle(settings.race ? ButtonStyle.Success : ButtonStyle.Secondary)
+    );
+
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('unsubscribe_all')
+            .setLabel('Unsubscribe from All')
+            .setStyle(ButtonStyle.Danger)
+    );
+
+    return { embeds: [embed], components: [row, row2] };
+}
+
+async function handleButton(interaction) {
+    const customId = interaction.customId;
+    const userId = interaction.user.id;
+
+    if (customId.startsWith('toggle_reminder_')) {
+        const type = customId.replace('toggle_reminder_', '');
+        let settings = getUserSubscription(userId);
+        if (!settings) {
+            settings = { weekend: false, qualifying: false, sprint: false, race: false };
+        }
+        settings[type] = !settings[type];
+        saveUserSubscription(userId, settings);
+        
+        const messageOptions = buildSubscriptionMessage(userId, settings);
+        await interaction.update(messageOptions);
+    } else if (customId === 'unsubscribe_all') {
+        saveUserSubscription(userId, null);
+        const embed = new EmbedBuilder()
+            .setColor('#CCCCCC')
+            .setTitle('🏎️ F1 Reminder Subscriptions')
+            .setDescription('❌ **You have successfully unsubscribed from all F1 reminders.**\n\nYou can subscribe again at any time using `/subscribe` or typing `subscribe`.');
+        await interaction.update({ embeds: [embed], components: [] });
+    }
+}
+
 module.exports = {
     handleAutocomplete,
     handleInteraction,
-    handleMessage
+    handleMessage,
+    handleButton
 };

@@ -1,3 +1,6 @@
+one reminder for the race weekend and additional opt-in reminders for qualifying, sprint and race (1 hour before). user should choose which reminder he wants to receive.
+
+Ignore these points:
 1. Docker integration
 2. configure PiHole on port 80
 3. host website kopnop.com

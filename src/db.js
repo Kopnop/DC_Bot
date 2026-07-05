@@ -38,12 +38,84 @@ if (!fs.existsSync(REMINDERS_FILE)) {
     fs.writeFileSync(REMINDERS_FILE, JSON.stringify({ sentRoundReminders: [] }));
 }
 
+function getRawSubscriptions() {
+    try {
+        const fileContent = fs.readFileSync(SUBSCRIPTIONS_FILE, 'utf8');
+        const data = JSON.parse(fileContent);
+        let subscribers = data.subscribers || {};
+        
+        // Migrate old array format if present
+        if (Array.isArray(subscribers)) {
+            const migrated = {};
+            for (const item of subscribers) {
+                if (typeof item === 'string') {
+                    migrated[item] = {
+                        weekend: true,
+                        qualifying: false,
+                        sprint: false,
+                        race: false
+                    };
+                }
+            }
+            data.subscribers = migrated;
+            fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(data, null, 2));
+            subscribers = migrated;
+        }
+        return subscribers;
+    } catch (err) {
+        console.error('Error reading subscriptions:', err.message);
+        return {};
+    }
+}
+
 function getSubscribers() {
-    return JSON.parse(fs.readFileSync(SUBSCRIPTIONS_FILE, 'utf8')).subscribers;
+    const subs = getRawSubscriptions();
+    return Object.keys(subs);
 }
 
 function saveSubscribers(subscribers) {
-    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify({ subscribers }, null, 2));
+    const currentSubs = getRawSubscriptions();
+    const newSubs = {};
+    for (const id of subscribers) {
+        newSubs[id] = currentSubs[id] || {
+            weekend: true,
+            qualifying: false,
+            sprint: false,
+            race: false
+        };
+    }
+    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify({ subscribers: newSubs }, null, 2));
+}
+
+function getUserSubscription(userId) {
+    const subs = getRawSubscriptions();
+    return subs[userId] || null;
+}
+
+function saveUserSubscription(userId, settings) {
+    const subs = getRawSubscriptions();
+    if (settings === null) {
+        delete subs[userId];
+    } else {
+        subs[userId] = {
+            weekend: settings.weekend !== undefined ? settings.weekend : true,
+            qualifying: !!settings.qualifying,
+            sprint: !!settings.sprint,
+            race: !!settings.race
+        };
+    }
+    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify({ subscribers: subs }, null, 2));
+}
+
+function getSubscribersForType(type) {
+    const subs = getRawSubscriptions();
+    const activeUserIds = [];
+    for (const [userId, settings] of Object.entries(subs)) {
+        if (settings[type]) {
+            activeUserIds.push(userId);
+        }
+    }
+    return activeUserIds;
 }
 
 function saveInteractedUser(userId) {
@@ -88,12 +160,13 @@ function getSentReminders() {
     }
 }
 
-function markReminderAsSent(round) {
+function markReminderAsSent(round, type) {
     try {
         const data = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8'));
         if (!data.sentRoundReminders) data.sentRoundReminders = [];
-        if (!data.sentRoundReminders.includes(round)) {
-            data.sentRoundReminders.push(round);
+        const reminderKey = type ? `${round}-${type}` : `${round}`;
+        if (!data.sentRoundReminders.includes(reminderKey)) {
+            data.sentRoundReminders.push(reminderKey);
             fs.writeFileSync(REMINDERS_FILE, JSON.stringify(data, null, 2));
         }
     } catch (err) {
@@ -104,6 +177,9 @@ function markReminderAsSent(round) {
 module.exports = {
     getSubscribers,
     saveSubscribers,
+    getUserSubscription,
+    saveUserSubscription,
+    getSubscribersForType,
     saveInteractedUser,
     getPredictions,
     savePredictions,

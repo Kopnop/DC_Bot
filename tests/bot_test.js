@@ -54,6 +54,7 @@ axios.get = async (url) => {
 // Require our refactored bot logic
 const { getUpcomingRace, checkUpcomingRaces, isPredictionLocked } = require('../src/scheduler');
 const { handleInteraction, handleMessage, handleAutocomplete } = require('../src/handlers/commands');
+const { getUserSubscription, saveUserSubscription, getSubscribersForType } = require('../src/db');
 
 // Backup original database files so testing doesn't affect user's local data
 const backups = {};
@@ -190,15 +191,39 @@ async function runTests() {
         // ==========================================
         // 1. TIMING AND REMINDER TESTS
         // ==========================================
-        console.log('1. Testing Race Reminder Scheduling...');
+        console.log('1. Testing Database Migration and Subscriptions API...');
+        
+        // Trigger a read to run the migration
+        const initialSubs = getSubscribersForType('weekend');
+        assert.deepEqual(initialSubs, ['12345'], 'Migration should convert old array to settings object');
+        
+        const settings12345 = getUserSubscription('12345');
+        assert.ok(settings12345, 'Settings for 12345 should exist');
+        assert.equal(settings12345.weekend, true, 'Weekend setting should be true by default');
+        assert.equal(settings12345.qualifying, false, 'Qualifying setting should be false by default');
+        console.log('   - DB Migration: OK');
 
-        // CASE A: Race is 25 hours away -> Reminder should NOT send
-        const time25h = new Date(Date.now() + 25 * 60 * 60 * 1000 - 5000); // 24.99 hours
+        console.log('\nTesting Race Reminder Scheduling (Friday morning)...');
+
+        // CASE A: Race is far away (next weekend) -> Friday 9am is in the future.
+        // Today is Sunday, July 5. Let's make the race next Sunday, July 12.
+        // Friday of that week is July 10.
+        // So Friday 9am is in the future. Reminder should NOT send.
+        const timeFutureRace = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days in the future
         let mockSchedule = {
             MRData: {
                 RaceTable: {
                     Races: [
-                        { round: '1', raceName: 'Australian Grand Prix', date: time25h.toISOString().split('T')[0], time: time25h.toISOString().split('T')[1].split('.')[0] + 'Z' }
+                        { 
+                            round: '1', 
+                            raceName: 'Australian Grand Prix', 
+                            date: timeFutureRace.toISOString().split('T')[0], 
+                            time: timeFutureRace.toISOString().split('T')[1].split('.')[0] + 'Z',
+                            Qualifying: {
+                                date: new Date(timeFutureRace.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                                time: '05:00:00Z'
+                            }
+                        }
                     ]
                 }
             }
@@ -206,38 +231,116 @@ async function runTests() {
         fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(mockSchedule));
         
         await checkUpcomingRaces(client);
-        assert.equal(user.receivedMessages.length, 0, 'Reminder should not send 25 hours before a race');
-        console.log('   - 25h timing window: OK');
+        assert.equal(user.receivedMessages.length, 0, 'Weekend reminder should not send if Friday 9am is in the future');
+        console.log('   - Future Friday timing window: OK');
 
-        // CASE B: Race is 24 hours away -> Reminder SHOULD send
-        const time24h = new Date(Date.now() + 24 * 60 * 60 * 1000 - 5000); // 23.99 hours
-        mockSchedule.MRData.RaceTable.Races[0].date = time24h.toISOString().split('T')[0];
-        mockSchedule.MRData.RaceTable.Races[0].time = time24h.toISOString().split('T')[1].split('.')[0] + 'Z';
+        // CASE B: Race is soon (e.g. tomorrow) -> Friday 9am is in the past.
+        // Since today is Sunday, Friday of this week is in the past. Reminder SHOULD send.
+        const timeSoonRace = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours in the future
+        mockSchedule.MRData.RaceTable.Races[0].date = timeSoonRace.toISOString().split('T')[0];
+        mockSchedule.MRData.RaceTable.Races[0].time = timeSoonRace.toISOString().split('T')[1].split('.')[0] + 'Z';
+        // Qualifying is also in the past relative to now, but let's place it far in past so it doesn't trigger qual reminder yet
+        mockSchedule.MRData.RaceTable.Races[0].Qualifying = {
+            date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            time: '05:00:00Z'
+        };
         fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(mockSchedule));
 
         await checkUpcomingRaces(client);
-        assert.equal(user.receivedMessages.length, 1, 'Reminder should send exactly 24 hours before a race');
-        assert.match(user.receivedMessages[0], /starts in exactly 24 hours/, 'Reminder message must have correct text');
+        assert.equal(user.receivedMessages.length, 1, 'Weekend reminder should send if Friday 9am is in the past');
+        assert.match(user.receivedMessages[0], /starts on/, 'Weekend reminder message must have correct text');
         
-        const sentReminders = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8')).sentRoundReminders;
-        assert.ok(sentReminders.includes('1'), 'Reminder should be recorded as sent in database');
-        console.log('   - 24h timing window: OK');
+        let sentReminders = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8')).sentRoundReminders;
+        assert.ok(sentReminders.includes('1-weekend'), 'Weekend reminder should be recorded as sent in database');
+        console.log('   - Past Friday timing window: OK');
 
-        // CASE C: Duplicate Check -> Reminder should NOT duplicate
+        // CASE C: Duplicate Check -> Weekend reminder should NOT duplicate
         await checkUpcomingRaces(client);
-        assert.equal(user.receivedMessages.length, 1, 'Duplicate reminders should be blocked');
-        console.log('   - Duplicate block: OK');
+        assert.equal(user.receivedMessages.length, 1, 'Duplicate weekend reminders should be blocked');
+        console.log('   - Weekend duplicate block: OK');
 
-        // CASE D: Fallback at 23 hours (if never sent before)
-        fs.writeFileSync(REMINDERS_FILE, JSON.stringify({ sentRoundReminders: [] })); // clear db
-        const time23h = new Date(Date.now() + 23 * 60 * 60 * 1000 - 5000); // 22.99 hours
-        mockSchedule.MRData.RaceTable.Races[0].date = time23h.toISOString().split('T')[0];
-        mockSchedule.MRData.RaceTable.Races[0].time = time23h.toISOString().split('T')[1].split('.')[0] + 'Z';
+        // CASE D: Qualifying 1h Reminder
+        // Add a user who has opted in to qualifying
+        saveUserSubscription('67890', { weekend: false, qualifying: true, sprint: false, race: false });
+        const userQual = client.addUser('67890', 'QualUser#1234');
+
+        // Position qualifying exactly 1 hour in the future (55 minutes)
+        const timeQual = new Date(Date.now() + 55 * 60 * 1000);
+        mockSchedule.MRData.RaceTable.Races[0].Qualifying = {
+            date: timeQual.toISOString().split('T')[0],
+            time: timeQual.toISOString().split('T')[1].split('.')[0] + 'Z'
+        };
         fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(mockSchedule));
 
         await checkUpcomingRaces(client);
-        assert.equal(user.receivedMessages.length, 2, 'Fallback reminder should trigger at 23 hours if never sent');
-        console.log('   - 23h fallback window: OK');
+        assert.equal(userQual.receivedMessages.length, 1, 'Qualifying reminder should send to opted-in users 1 hour before');
+        assert.match(userQual.receivedMessages[0], /Qualifying.*starts in 1 hour/, 'Qualifying reminder content check');
+        
+        // User '12345' (not opted in to qualifying) should not receive it
+        assert.equal(user.receivedMessages.length, 1, 'Qualifying reminder should not send to non-opted-in users');
+        
+        sentReminders = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8')).sentRoundReminders;
+        assert.ok(sentReminders.includes('1-qualifying'), 'Qualifying reminder should be recorded as sent in database');
+        console.log('   - Qualifying 1h timing window and opt-in: OK');
+
+        // CASE E: Sprint 1h Reminder
+        saveUserSubscription('55555', { weekend: false, qualifying: false, sprint: true, race: false });
+        const userSprint = client.addUser('55555', 'SprintUser#1234');
+
+        const timeSprint = new Date(Date.now() + 55 * 60 * 1000);
+        mockSchedule.MRData.RaceTable.Races[0].Sprint = {
+            date: timeSprint.toISOString().split('T')[0],
+            time: timeSprint.toISOString().split('T')[1].split('.')[0] + 'Z'
+        };
+        fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(mockSchedule));
+
+        await checkUpcomingRaces(client);
+        assert.equal(userSprint.receivedMessages.length, 1, 'Sprint reminder should send to opted-in users');
+        assert.match(userSprint.receivedMessages[0], /Sprint.*starts in 1 hour/, 'Sprint reminder content check');
+        
+        sentReminders = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8')).sentRoundReminders;
+        assert.ok(sentReminders.includes('1-sprint'), 'Sprint reminder should be recorded as sent in database');
+        console.log('   - Sprint 1h timing window and opt-in: OK');
+
+        // CASE F: Race 1h Reminder
+        saveUserSubscription('77777', { weekend: false, qualifying: false, sprint: false, race: true });
+        const userRace1h = client.addUser('77777', 'Race1hUser#1234');
+
+        const timeRace1h = new Date(Date.now() + 55 * 60 * 1000);
+        mockSchedule.MRData.RaceTable.Races[0].date = timeRace1h.toISOString().split('T')[0];
+        mockSchedule.MRData.RaceTable.Races[0].time = timeRace1h.toISOString().split('T')[1].split('.')[0] + 'Z';
+        fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(mockSchedule));
+
+        await checkUpcomingRaces(client);
+        assert.equal(userRace1h.receivedMessages.length, 1, 'Race 1h reminder should send to opted-in users');
+        assert.match(userRace1h.receivedMessages[0], /starts in 1 hour/, 'Race 1h reminder content check');
+        
+        sentReminders = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8')).sentRoundReminders;
+        assert.ok(sentReminders.includes('1-race'), 'Race 1h reminder should be recorded as sent in database');
+        console.log('   - Race 1h timing window and opt-in: OK');
+
+        // CASE G: Toggling Settings via Button Handler
+        console.log('\nTesting UI Button Toggles...');
+        class MockButtonInteraction {
+            constructor(customId, userId, userTag) {
+                this.customId = customId;
+                this.user = { id: userId, tag: userTag };
+                this.replies = [];
+            }
+            isButton() { return true; }
+            async update(options) {
+                this.replies.push(options);
+                return options;
+            }
+        }
+
+        const buttonHandler = require('../src/handlers/commands').handleButton;
+        const interactionButton = new MockButtonInteraction('toggle_reminder_qualifying', '12345', 'Robin#1234');
+        
+        await buttonHandler(interactionButton);
+        const updatedSettings = getUserSubscription('12345');
+        assert.equal(updatedSettings.qualifying, true, 'Qualifying reminder should be toggled to true');
+        console.log('   - Button toggle setting: OK');
 
         // ==========================================
         // 2. STANDINGS COMMANDS TESTS
@@ -310,8 +413,10 @@ async function runTests() {
         console.log('   - DM predict identical inputs reject: OK');
 
         // Unit test the predictions lock logic helper directly
-        const pastRace = { date: '2026-06-14', time: '13:00:00Z' }; // In the past relative to 2026-06-15
-        const futureRace = { date: '2026-06-28', time: '13:00:00Z' }; // In the future relative to 2026-06-15
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const oneDayFuture = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const pastRace = { date: oneDayAgo.toISOString().split('T')[0], time: oneDayAgo.toISOString().split('T')[1].split('.')[0] + 'Z' };
+        const futureRace = { date: oneDayFuture.toISOString().split('T')[0], time: oneDayFuture.toISOString().split('T')[1].split('.')[0] + 'Z' };
         assert.ok(isPredictionLocked(pastRace), 'Past race should be locked');
         assert.ok(!isPredictionLocked(futureRace), 'Future race should not be locked');
         console.log('   - Direct isPredictionLocked checking: OK');
