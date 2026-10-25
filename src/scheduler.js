@@ -13,7 +13,7 @@ const {
     savePredictions,
     getSubscribersForType
 } = require('./db');
-const { formatToCET } = require('./utils');
+const { formatToCET, formatDriverName } = require('./utils');
 
 // Preceding Friday of a given race date
 function getFridayOfRaceWeek(raceDate) {
@@ -290,7 +290,7 @@ async function processRaceResults(client) {
 
             try {
                 const user = await client.users.fetch(userId);
-                const getPrettyName = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+                const getPrettyName = (id) => formatDriverName(id);
 
                 await user.send(
                     `🏁 **F1 Predictions Results: ${lastFinishedRace.raceName}** 🏁\n\n` +

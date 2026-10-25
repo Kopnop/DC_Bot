@@ -43,6 +43,11 @@ function normalizeDriverName(name) {
     return lastWord || clean;
 }
 
+function getBerlinTimezone(date = new Date()) {
+    const tzString = date.toLocaleString('en-US', { timeZone: 'Europe/Berlin', timeZoneName: 'short' });
+    return (tzString.includes('GMT+2') || tzString.includes('CEST')) ? 'CEST' : 'CET';
+}
+
 function formatToCET(date) {
     const options = {
         timeZone: 'Europe/Berlin',
@@ -61,17 +66,17 @@ function formatToCET(date) {
     const hour = dateParts.find(p => p.type === 'hour').value;
     const minute = dateParts.find(p => p.type === 'minute').value;
     
-    const tzString = date.toLocaleString('en-US', { timeZone: 'Europe/Berlin', timeZoneName: 'short' });
-    let tz = 'CET';
-    if (tzString.includes('GMT+2') || tzString.includes('GMT+02') || tzString.includes('CEST')) {
-        tz = 'CEST';
-    } else if (tzString.includes('GMT+1') || tzString.includes('GMT+01') || tzString.includes('CET')) {
-        tz = 'CET';
-    }
-    return `${day}.${month}.${year} at ${hour}:${minute} ${tz}`;
+    return `${day}.${month}.${year} at ${hour}:${minute} ${getBerlinTimezone(date)}`;
+}
+
+function formatDriverName(id) {
+    if (!id) return '';
+    return id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 module.exports = {
     normalizeDriverName,
-    formatToCET
+    getBerlinTimezone,
+    formatToCET,
+    formatDriverName
 };

@@ -16,6 +16,17 @@ const INTERACTED_FILE = path.join(DATA_DIR, 'interacted.json');
 // Mock axios.get for external APIs
 const originalGet = axios.get;
 axios.get = async (url) => {
+    if (url.includes('current.json')) {
+        return {
+            data: {
+                MRData: {
+                    RaceTable: {
+                        Races: []
+                    }
+                }
+            }
+        };
+    }
     if (url.includes('driverStandings.json')) {
         return {
             data: {
@@ -55,6 +66,8 @@ axios.get = async (url) => {
 const { getUpcomingRace, checkUpcomingRaces, isPredictionLocked } = require('../src/scheduler');
 const { handleInteraction, handleMessage, handleAutocomplete } = require('../src/handlers/commands');
 const { getUserSubscription, saveUserSubscription, getSubscribersForType } = require('../src/db');
+const { getBerlinTimezone, formatDriverName } = require('../src/utils');
+const { fetchF1Schedule } = require('../src/api');
 
 // Backup original database files so testing doesn't affect user's local data
 const backups = {};
@@ -449,6 +462,30 @@ async function runTests() {
         await handleMessage(msg, client);
         assert.match(msg.replies[0], /teams/, 'Text help command must list standings commands');
         console.log('   - DM help command content: OK');
+
+        // 5. Testing Timezone Dynamic Handling and Active Race Drivers Fetch
+        console.log('\n5. Testing Timezone Dynamic Handling and Active Race Drivers...');
+        assert.strictEqual(getBerlinTimezone(new Date('2026-07-15T12:00:00Z')), 'CEST', 'July date must be CEST');
+        assert.strictEqual(getBerlinTimezone(new Date('2026-12-15T12:00:00Z')), 'CET', 'December date must be CET');
+        console.log('   - getBerlinTimezone dynamic summer/winter: OK');
+
+        // Check subscribe command message includes dynamic timezone
+        interaction = new MockInteraction('subscribe', '12345', 'Robin#1234');
+        await handleInteraction(interaction, client);
+        const subEmbed = interaction.replies[0].embeds[0];
+        assert.match(subEmbed.data.description, /Race Weekend \(Fri 9am (CET|CEST)\)/, 'Subscribe embed must have dynamic CET or CEST');
+        console.log('   - Slash /subscribe dynamic Fri 9am CET/CEST embed: OK');
+
+        // Test formatDriverName helper
+        assert.strictEqual(formatDriverName('max_verstappen'), 'Max Verstappen');
+        assert.strictEqual(formatDriverName('arvid_lindblad'), 'Arvid Lindblad');
+        console.log('   - formatDriverName pretty naming: OK');
+
+        // Test fetchF1Schedule writing official race drivers
+        await fetchF1Schedule();
+        const savedDrivers = JSON.parse(fs.readFileSync(DRIVERS_FILE, 'utf8'));
+        assert.ok(savedDrivers.MRData?.DriverTable?.Drivers?.length > 0, 'Must save active race drivers to drivers.json');
+        console.log('   - fetchF1Schedule drivers pull: OK');
 
         console.log('\n✅ ALL TEST ASSERTIONS COMPLETED SUCCESSFULLY!');
     } catch (err) {

@@ -10,9 +10,20 @@ async function fetchF1Schedule() {
         console.log('F1 schedule updated successfully.');
 
         console.log('Fetching active F1 drivers...');
-        const driversResponse = await axios.get('https://api.jolpi.ca/ergast/f1/current/drivers.json');
-        fs.writeFileSync(DRIVERS_FILE, JSON.stringify(driversResponse.data, null, 2));
-        console.log('F1 drivers list updated successfully.');
+        // Pull drivers from current standings (only includes drivers who raced)
+        const standingsResponse = await axios.get('https://api.jolpi.ca/ergast/f1/current/driverStandings.json?limit=100');
+        let drivers = (standingsResponse.data?.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings || [])
+            .map(s => s.Driver)
+            .filter(Boolean);
+
+        // Before race 1 of a new season standings are empty; fallback to registered drivers
+        if (drivers.length === 0) {
+            const driversResponse = await axios.get('https://api.jolpi.ca/ergast/f1/current/drivers.json?limit=100');
+            drivers = driversResponse.data?.MRData?.DriverTable?.Drivers || [];
+        }
+
+        fs.writeFileSync(DRIVERS_FILE, JSON.stringify({ MRData: { DriverTable: { Drivers: drivers } } }, null, 2));
+        console.log(`F1 drivers list updated successfully (${drivers.length} drivers).`);
     } catch (error) {
         console.error('Error fetching F1 schedule or drivers:', error.message);
     }

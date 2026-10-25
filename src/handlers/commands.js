@@ -21,7 +21,9 @@ const {
 } = require('../db');
 const {
     normalizeDriverName,
-    formatToCET
+    formatToCET,
+    getBerlinTimezone,
+    formatDriverName
 } = require('../utils');
 const {
     fetchDriverStandings,
@@ -150,7 +152,7 @@ async function handleInteraction(interaction, client) {
         };
         savePredictions(predictions);
 
-        const getPrettyName = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+        const getPrettyName = (id) => formatDriverName(id, drivers);
         const raceDate = new Date(`${upcomingRace.date}T${upcomingRace.time}`);
         const formattedTime = formatToCET(raceDate);
         await interaction.reply({
@@ -175,7 +177,13 @@ async function handleInteraction(interaction, client) {
             return interaction.reply({ content: `You have not placed any predictions for the **${upcomingRace.raceName}** yet. Use \`/predict\` to submit one!`, ephemeral: true });
         }
 
-        const getPrettyName = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+        let driversData = {};
+        try {
+            driversData = JSON.parse(fs.readFileSync(DRIVERS_FILE, 'utf8'));
+        } catch (err) { }
+        const drivers = driversData.MRData?.DriverTable?.Drivers || [];
+
+        const getPrettyName = (id) => formatDriverName(id, drivers);
         const isLocked = isPredictionLocked(upcomingRace);
         const raceDate = new Date(`${upcomingRace.date}T${upcomingRace.time}`);
         const formattedTime = formatToCET(raceDate);
@@ -253,9 +261,9 @@ async function handleMessage(message, client) {
                 return message.reply('To predict, please use the format: `predict [p1] [p2] [p3]` (e.g. `predict ver nor lec`).\nAlternatively, you can use the slash command `/predict`.');
             }
 
-            const p1 = normalizeDriverName(args[1]);
-            const p2 = normalizeDriverName(args[2]);
-            const p3 = normalizeDriverName(args[3]);
+            let p1 = normalizeDriverName(args[1]);
+            let p2 = normalizeDriverName(args[2]);
+            let p3 = normalizeDriverName(args[3]);
 
             if (p1 === p2 || p1 === p3 || p2 === p3) {
                 return message.reply('You must predict three different drivers for the podium!');
@@ -268,6 +276,10 @@ async function handleMessage(message, client) {
             } catch (err) { }
             const drivers = driversData.MRData?.DriverTable?.Drivers || [];
             const driverIds = drivers.map(d => d.driverId);
+
+            if (p1 === 'verstappen' && driverIds.includes('max_verstappen')) p1 = 'max_verstappen';
+            if (p2 === 'verstappen' && driverIds.includes('max_verstappen')) p2 = 'max_verstappen';
+            if (p3 === 'verstappen' && driverIds.includes('max_verstappen')) p3 = 'max_verstappen';
 
             if (!driverIds.includes(p1) || !driverIds.includes(p2) || !driverIds.includes(p3)) {
                 // Return a clean list of driver abbreviations
@@ -289,7 +301,7 @@ async function handleMessage(message, client) {
             };
             savePredictions(predictions);
 
-            const getPrettyName = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+            const getPrettyName = (id) => formatDriverName(id, drivers);
             const raceDate = new Date(`${upcomingRace.date}T${upcomingRace.time}`);
             const formattedTime = formatToCET(raceDate);
             await message.reply(
@@ -312,7 +324,13 @@ async function handleMessage(message, client) {
                 return message.reply(`You have not placed any predictions for the **${upcomingRace.raceName}** yet. Type \`predict [p1] [p2] [p3]\` to submit one!`);
             }
 
-            const getPrettyName = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+            let driversData = {};
+            try {
+                driversData = JSON.parse(fs.readFileSync(DRIVERS_FILE, 'utf8'));
+            } catch (err) { }
+            const drivers = driversData.MRData?.DriverTable?.Drivers || [];
+
+            const getPrettyName = (id) => formatDriverName(id, drivers);
             const isLocked = isPredictionLocked(upcomingRace);
             const myraceDate = new Date(`${upcomingRace.date}T${upcomingRace.time}`);
             const myformattedTime = formatToCET(myraceDate);
@@ -402,12 +420,14 @@ function buildSubscriptionMessage(userId, subscriptionSettings) {
         race: false
     };
 
+    const tz = getBerlinTimezone();
+
     const embed = new EmbedBuilder()
         .setColor('#FF1801')
         .setTitle('🏎️ F1 Reminder Subscriptions')
         .setDescription(
             'Customize which reminders you want to receive. Click the buttons below to toggle your choices.\n\n' +
-            `• **Race Weekend (Fri 9am CEST):** ${settings.weekend ? '🔔 **Active**' : '🔕 **Inactive**'}\n` +
+            `• **Race Weekend (Fri 9am ${tz}):** ${settings.weekend ? '🔔 **Active**' : '🔕 **Inactive**'}\n` +
             `• **Qualifying (1h before):** ${settings.qualifying ? '🔔 **Active**' : '🔕 **Inactive**'}\n` +
             `• **Sprint (1h before):** ${settings.sprint ? '🔔 **Active**' : '🔕 **Inactive**'}\n` +
             `• **Race (1h before):** ${settings.race ? '🔔 **Active**' : '🔕 **Inactive**'}`

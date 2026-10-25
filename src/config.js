@@ -22,7 +22,7 @@ const COMMANDS_HELP_TEXT =
     "- **/info** (or type **info** or **help**): Show this command list.";
 
 const DRIVER_MAPPING = {
-    'verstappen': 'verstappen', 'ver': 'verstappen',
+    'verstappen': 'verstappen', 'ver': 'verstappen', 'max': 'max_verstappen', 'max_verstappen': 'max_verstappen',
     'norris': 'norris', 'nor': 'norris',
     'leclerc': 'leclerc', 'lec': 'leclerc',
     'piastri': 'piastri', 'pia': 'piastri',
@@ -48,7 +48,9 @@ const DRIVER_MAPPING = {
     'doohan': 'doohan', 'doo': 'doohan',
     'antonelli': 'antonelli', 'ant': 'antonelli',
     'hadjar': 'hadjar', 'had': 'hadjar',
-    'borges': 'borges', 'bor': 'borges'
+    'bortoleto': 'bortoleto', 'bor': 'bortoleto',
+    'lindblad': 'arvid_lindblad', 'lin': 'arvid_lindblad', 'arvid_lindblad': 'arvid_lindblad',
+    'borges': 'borges'
 };
 
 const commands = [
